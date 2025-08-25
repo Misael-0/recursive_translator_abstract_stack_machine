@@ -39,19 +39,16 @@ This project implements a **recursive translator** from a COBOL-like high-level 
 
 ## Running the Project
 
-### 1. Generate Java source files with JavaCC
 ```bash
+### 1. Generate Java source files with JavaCC
 javacc Parser.jj
 
 ### 2. Compile the generated Java code
-```bash
 javac *.java
 
 ### 3. Run the parser
 · From standar input:
-```bash
 java Parser
 
 · From a file:
-```bash
 java Parser input.txt
