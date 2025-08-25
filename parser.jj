@@ -1,0 +1,483 @@
+/*
+*   Programa:           Traductor recursivo a máquina de pila abstracta de
+*                       código de entrada similar al lenguaje de alto nivel
+*                       COBOL.
+*   Autor:              Juan Misael Sánchez Pacheco.
+*   Fecha:              16 noviembre 2024. 
+*   Version:            1.0.
+*   Observaciones:      Con el fin de simplificar el análisis sintáctico,
+*                       no se crean tókenes de tipo comentario, simplemente
+*                       el analizador léxico los omite para evitar que el
+*                       analizador sintáctico deba consumir este tipo de
+*                       tókenes.
+*/
+
+// Opciones de JavaCC.
+options 
+{
+    DEBUG_TOKEN_MANAGER = false; // Debug del TokenManager.
+    DEBUG_PARSER = false; // Debug del Parser.
+}
+
+// Inicio del parser.
+PARSER_BEGIN(Parser)
+
+// Clase para el parser.
+public class Parser 
+{
+    /*
+     * Permite generar etiquetas únicas 
+     * para las estructuras de control.
+     */
+    private static int etiqueta = -1;
+
+    /*
+     * Bandera para evitar que el no terminal
+     * Atomic ejecute sus acciones.
+     */
+    private static boolean ocultarAtomic = false;
+
+    // Rutina principal.
+    public static void main(String[] args)
+    {
+        Parser parser;
+        try 
+        {
+            // Lectura de la entrada estándar.
+            if (args.length < 1) 
+            {
+                System.err.println("Introduce una expresión: ");
+                parser = new Parser(System.in);
+            }
+            // Lectura de archivo.
+            else
+                parser = new Parser(new java.io.FileReader(args[0]));
+            
+            parser.Program(); // Axioma de la gramática.
+        }
+        catch (java.io.IOException e) 
+        {
+            System.out.println("Error de lectura del archivo: " + e.getMessage());
+        }
+        catch (TokenMgrError e) 
+        {
+            System.out.println("TokenManager falló: " + e.getMessage());
+        }
+        catch (ParseException e) 
+        {
+            System.out.println("Comprobación de sintaxis errónea: " +  e.getMessage());
+        }
+    }
+}
+
+PARSER_END(Parser)
+
+/*
+ * Análisis léxico.
+ * 
+ * Se siguen algunas recomendaciones para JavaCC de:
+ * https://javacc.github.io/javacc/tutorials/lexer-tips.html
+ */
+
+// Omisiones.
+SKIP: 
+{ 
+    // Se omiten los blancos.
+    " " | "\t" | "\r" | "\n" 
+
+    // Se ignoran los comentarios.
+    |   < COM:      (" "){6} "*" (~["\n"])* > 
+    |   < COM_LIN:  ("*>") (~["\n"])*       >  
+}
+
+// Palabras clave del lenguaje ordenadas por longitud 
+// para mejorar la eficiencia.
+TOKEN:
+{
+        < IF_K:          "IF"            >
+    |   < DO_K:          "DO"            >
+    |   < TO_K:          "TO"            >
+    |   < IS_K:          "IS"            >
+    |   < BY_K:          "BY"            >
+    |   < END_K:         "END"           >
+    |   < NOT_K:         "NOT"           >
+    |   < ADD_K:         "ADD"           >
+    |   < MOVE_K:        "MOVE"          >
+    |   < LESS_K:        "LESS"          >
+    |   < THEN_K:        "THEN"          >
+    |   < ELSE_K:        "ELSE"          >
+    |   < THAN_K:        "THAN"          >
+    |   < FROM_K:        "FROM"          >
+    |   < BEGIN_K:       "BEGIN"         >
+    |   < WHILE_K:       "WHILE"         >
+    |   < EQUAL_K:       "EQUAL"         >
+    |   < ACCEPT_K:      "ACCEPT"        >
+    |   < DIVIDE_K:      "DIVIDE"        >
+    |   < GIVING_K:      "GIVING"        >
+    |   < GREATER_K:     "GREATER"       >
+    |   < VARYING_K:     "VARYING"       >
+    |   < PROGRAM_K:     "PROGRAM"       >
+    |   < DISPLAY_K:     "DISPLAY"       >
+    |   < SUBTRACT_K:    "SUBTRACT"      >
+    |   < MULTIPLY_K:    "MULTIPLY"      >  
+}
+
+// Definiciones.
+TOKEN:
+{
+        // Números enteros.
+        < NUM: ("-")? (<DIGIT>)+                                                >
+
+        // Cadenas con comillas dobles y con comillas simples.
+    |   < CAD:  (<COMILL_DOB> | <COMILL_SIM>)                                   >
+
+        // Las palabras reservadas se deben leer antes que este patrón para evitarlas.
+    |   < ID: (<MAYUS>) ( ("-" | <MAYUS> | <DIGIT>)* (<MAYUS> | <DIGIT>) )*     >
+
+    // Definiciones locales reutilizables.
+    |   < #MAYUS:               ["A"-"Z"]                                       >
+    |   < #DIGIT:               ["0"-"9"]                                       >
+    |   < #COMILL_DOB:          "\"" (~["\n","\r","\""])* "\""                  >
+    |   < #COMILL_SIM:          "\'" (~["\n","\r","\'"])* "\'"                  >
+}
+
+
+
+
+
+
+/*
+ * Análisis sintáctico.
+ */
+
+ // Axioma de la gramática. Define la estructura principal.
+void Program() : {}
+{
+    (
+        <PROGRAM_K> 
+        <ID>
+        "."
+        <BEGIN_K>
+        Stmts()
+        <END_K>
+        <EOF>
+    )
+} 
+
+
+// Sentencias.
+void Stmts() : {} 
+{ 
+    (Stmt())* // El cuerpo del programa podría estar vacío.
+}
+
+
+
+
+// Sentencia.
+void Stmt() : {} 
+{ 
+    ((Loop()) | (Cond()) | (Assig()) | (IO())) "." 
+}
+
+
+
+
+// Bucle.
+void Loop() :  
+{
+    Token tk = null;
+    int etiquetaBucle = 0, etiquetaBoolExpr = 0;
+    String inicial = "", inicial_asign = "1", // Valor por defecto de asignación inicial.
+           limite = "", incremento = "1"; // Valor por defecto de incremento.
+}
+{
+    (
+        // Prod 1. WHILE.
+        (<WHILE_K> 
+        { 
+            etiquetaBucle = ++etiqueta; // Creación de una nueva etiqueta.
+            System.out.println("LBL" + etiquetaBucle + ":"); // Etiqueta inicio bucle.
+        })
+
+        (BooleanExpr() 
+        { 
+            etiquetaBoolExpr = ++etiqueta;
+            System.out.println("\tsifalsovea LBL" + etiquetaBoolExpr); // Etiqueta salida bucle.
+        })
+        <DO_K>
+        (Stmts() { 
+            System.out.println("\tvea LBL" + etiquetaBucle); // Vuelta inicio bucle.
+            System.out.println("LBL" + etiquetaBoolExpr + ":");  // Etiqueta salida bucle.
+        })
+        <END_K>
+
+    )    
+
+    | 
+    
+    (
+        // Prod 2. VARYING.
+        <VARYING_K> { etiquetaBucle = ++etiqueta; }
+
+        tk = <ID> { 
+            inicial = tk.image;
+            System.out.println("\tvalori " + inicial); 
+        }
+
+        (<FROM_K> inicial_asign = Atomic())?
+
+        <TO_K> {
+            if (inicial_asign == "1") System.out.println("\tmete " + inicial_asign);
+
+            System.out.println("\tasigna");
+            System.out.println("LBL" + etiquetaBucle + ":"); // Etiqueta inicio bucle.
+
+            // Se ocultan las salidas de Atomic.
+            ocultarAtomic = true;
+        }
+
+        limite = Atomic()
+        
+        (<BY_K> incremento = Atomic())?
+    
+
+        (<DO_K> { ocultarAtomic = false; })
+
+        Stmts() // Cuerpo del for.
+
+        {
+            // Instrucciones tras el bucle del for.
+            System.out.println("\tvalori " + inicial);
+            System.out.println("\tvalord " + inicial);
+            System.out.println("\tmete " + incremento);
+            System.out.println("\tadd");
+            System.out.println("\tasigna");
+            System.out.println("\tvalord " + inicial);  
+            System.out.println("\tmete " + limite);
+            System.out.println("\tesmenor");
+            System.out.println("\tsiciertovea LBL" + etiquetaBucle);
+        }
+        <END_K>
+    )
+}
+
+
+
+
+// Condicional.
+void Cond() : 
+{
+    int etiquetaFin = 0, etiquetaElse = 0;
+}
+{
+    <IF_K>        
+    BooleanExpr()
+    (<THEN_K> { 
+        etiquetaFin = ++etiqueta;
+        System.out.println("\tsifalsovea LBL" + etiquetaFin); // Etiqueta de fin/else
+    })  
+
+    Stmts() // Cuerpo del IF.
+
+    // ELSE opcional.
+    (
+        (<ELSE_K> {
+            etiquetaElse = etiquetaFin; // FIN pasa a ser ELSE.
+            etiquetaFin = ++etiqueta; // Nueva para FIN
+            System.out.println("\tvea LBL" + etiquetaFin);
+            System.out.println("LBL" + etiquetaElse + ":");
+        })
+
+        Stmts() // Cuerpo del ELSE.
+    )?
+
+    (<END_K> { System.out.println("LBL" + etiquetaFin + ":"); }) // Etiqueta de FIN IF.
+}
+
+
+
+
+// Entrada/salida.
+void IO() : 
+{
+    Token tk = null;
+    int elementos = 0;
+}
+{   
+    // Prod 1. Entrada.
+    <DISPLAY_K>
+    (Literal() { elementos++; }) 
+    ("," Literal() { elementos++; })* 
+    { System.out.println("\tprint " + elementos); }
+
+    // Prod 2. Salida.
+    | (<ACCEPT_K> tk = <ID> { System.out.println("\tlee " + tk.image); })
+}
+
+
+
+
+// Valores literales.
+void Literal() : 
+{
+    Token tk = null;
+}
+{
+    // Prod 1. Valores atómicos.
+    Atomic() 
+
+    // Prod 2. Valor cadena.
+    | tk = <CAD> { System.out.println("\tmetecad " + tk.image); }
+}
+
+
+
+
+// Valores atómicos.
+String Atomic() : 
+{
+    Token tk = null;
+}
+{
+    // Prod 1. Identificador.
+    (tk = <ID>    { if (!ocultarAtomic) System.out.println("\tvalord " + tk.image); } 
+
+    // Prod 2. Número.
+    | tk = <NUM> { if (!ocultarAtomic) System.out.println("\tmete " + tk.image); })
+
+    { return tk.image; } // Necesario para Varying.
+}
+
+
+
+
+// Asignación.
+void Assig() : 
+{
+    Token tk = null;
+    String operaciones = "";
+}
+{
+    (
+        // Prod 1. Move.
+        (
+            <MOVE_K> 
+            Expr()
+            <TO_K> 
+            tk = <ID>
+        )
+
+        // Prod 2. Add.
+        | (
+            <ADD_K>
+            Expr()
+            <TO_K> 
+            tk = <ID> { operaciones = "\tvalord " + tk.image + "\n\tadd\n"; }
+        )
+
+        // Prod 3. Subtract.
+        | (
+            <SUBTRACT_K>
+            Expr()
+            <FROM_K>
+            tk = <ID> { operaciones = "\tvalord " + tk.image + "\n\tswap\n\tsub\n"; }
+        )
+
+        // Prod 4. Multiply/Divide.
+        | (
+            (   
+                <MULTIPLY_K> { operaciones = "\tmul\n"; }
+                | <DIVIDE_K> { operaciones = "\tdiv\n"; }
+            )
+            Expr() (<BY_K>) Expr()
+            (<GIVING_K>)
+            tk = <ID>
+        )
+    )
+    { 
+        // Para Prod 2, 3 y 4.
+        { System.out.print(operaciones); }
+    
+        // Común a todas.
+        System.out.println("\tvalori " + tk.image);
+        System.out.println("\tswap");
+        System.out.println("\tasigna"); 
+    }
+}
+
+
+
+
+// Expresión.
+void Expr() : {}
+{
+    Mult()
+    (
+        // Prod 1. Resta.
+        ("-" Mult() { System.out.println("\tsub"); })
+
+        // Prod 2. Suma.
+        |   ("+" Mult() { System.out.println("\tadd"); })
+    )*
+}
+
+
+
+
+// Producto o división.
+void Mult() : {}
+{
+    Val()
+    (
+        // Prod 1. División.
+        ("/" Val()    { System.out.println("\tdiv"); }) 
+
+        // Prod 2. Producto.
+        | ("*" Val() { System.out.println("\tmul"); }) 
+    )*
+}
+
+
+
+
+// Valor.
+void Val() : {}
+{
+    // Prod 1. Valor atómico.
+    Atomic() 
+    
+    // Prod 2. Valor expresión parentizada.
+    | "(" Expr() ")"
+}
+
+
+
+
+// Expresión booleana.
+void BooleanExpr() : 
+{
+    String operacion = "";
+    String negacion = "";
+}
+{
+    (
+        Expr() 
+        <IS_K> (<NOT_K> { negacion = "\n\tnot"; })?
+        ( 
+            ( 
+                // Prod 1. Mayor.
+                (<GREATER_K>  { operacion = "\tesmayor"; })
+            
+                // Prod 2. Menor.
+                | (<LESS_K> { operacion = "\tesmenor"; } )
+
+            ) <THAN_K>
+            
+            // Prod 3. Igualdad.
+            |  (<EQUAL_K> <TO_K> { operacion = "\tesigual"; })
+        ) 
+        Expr()
+        { System.out.println(operacion + negacion); }
+    )
+}
